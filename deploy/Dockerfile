@@ -18,10 +18,12 @@ RUN uv sync --frozen --no-dev
 
 COPY relay/ ./relay/
 COPY NetSDK/ ./NetSDK/
+COPY hcnetsdk/ ./hcnetsdk/
 COPY deploy/ ./deploy/
 
-# NetSDK .so files reference each other; make them discoverable.
-ENV LD_LIBRARY_PATH=/app/NetSDK/Libs/linux64
+# Both vendors' .so files reference each other; make them discoverable. Only the
+# selected vendor's libs are actually loaded, so listing both dirs is harmless.
+ENV LD_LIBRARY_PATH=/app/NetSDK/Libs/linux64:/app/hcnetsdk:/app/hcnetsdk/HCNetSDKCom
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 

@@ -4,32 +4,46 @@ Guidance for working in this repo.
 
 ## What this is
 
-A Linux service that bridges a Dahua NVR's proprietary **NetSDK** live stream to standard
-**RTSP**, without transcoding. NetSDK delivers the device's native **DHAV** container; we
-forward those bytes to `ffmpeg -f dhav -c copy` (ffmpeg demuxes DHAV natively), which
-publishes to a bundled **MediaMTX** RTSP server.
+A Linux service that bridges a **Dahua** (NetSDK) or **Hikvision** (HCNetSDK) NVR's
+proprietary live stream to standard **RTSP**, without transcoding. The SDK callback
+delivers the device's native container; we forward those bytes to `ffmpeg -c copy`
+(ffmpeg demuxes them natively), which publishes to a bundled **MediaMTX** RTSP server.
+One deployment targets **one vendor**, chosen by the `VENDOR` env var.
 
 ```
-Dahua device ──NetSDK──▶ relay ──raw DHAV──▶ ffmpeg -f dhav -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
+Dahua device     ──NetSDK────▶ relay ──raw DHAV───▶ ffmpeg -f dhav -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
+Hikvision device ──HCNetSDK──▶ relay ──MPEG-PS───▶ ffmpeg -f mpeg -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
 ```
+
+Everything vendor-specific lives behind a `Backend` in [relay/backends/](relay/backends/);
+the pipeline/publisher/config/playlist code is vendor-neutral. **No Dahua hardware is
+available to re-test anymore** — treat the Dahua backend as behavior-preserving legacy
+(move, don't rewrite); active testing is against the Hikvision device.
 
 ## Layout
 
 - [relay/](relay/) — the Python package (`python -m relay`):
-  - [config.py](relay/config.py) — env→`Config`; `STREAM_TYPES` maps `main/sub/sub2` → SDK play-type ints (0/3/4).
-  - [sdk_client.py](relay/sdk_client.py) — `DahuaClient`: all ctypes/NetSDK use (init, login, headless RealPlay, raw callback, logout, cleanup).
-  - [dhav.py](relay/dhav.py) — pure `DhavParser`: DHAV frames → `(codec, annexb_nal)`; codec + resolution detection. **Used only by `parse` mode** (not the streaming path). Fully unit-tested; no SDK/ffmpeg deps.
-  - [publisher.py](relay/publisher.py) — `FfmpegPublisher`: spawns/monitors/restarts `ffmpeg -f dhav -c copy` (codec-agnostic; ffmpeg detects it).
-  - [pipeline.py](relay/pipeline.py) — wires callback → bounded queue → ffmpeg (forwards raw DHAV bytes; backpressure: drop-oldest).
-  - [manager.py](relay/manager.py) — `StreamManager`: the `run` daemon. One login, N concurrent `StreamPipeline`s (one ffmpeg each), always-on; a per-stream start failure is logged and skipped.
+  - [config.py](relay/config.py) — env→`Config`; `vendor` (from `VENDOR`, alias `hik`→`hikvision`), default port per vendor.
+  - [backends/](relay/backends/) — the vendor seam. Each submodule **must be pure to import** (defining ctypes structs is fine; loading the SDK `.so`/wheel is lazy, inside client construction) so config/tests never need an installed SDK.
+    - [base.py](relay/backends/base.py) — `SdkClient` Protocol, `ProbeResult`, the `Backend` descriptor, `DEFAULT_PORTS`, and `get_backend(vendor)` (lazy `importlib`).
+    - [dahua.py](relay/backends/dahua.py) — `DahuaClient` (ctypes/NetSDK) + DHAV probe + `BACKEND` (stream types `main/sub/sub2`→0/3/4, `-f dhav`). Moved from the old `sdk_client.py`/`probe.py`.
+    - [hikvision.py](relay/backends/hikvision.py) — `HikvisionClient` (ctypes/HCNetSDK, bindings authored from `hcnetsdk/HCNetSDK.h`) + ffprobe-based probe + `BACKEND` (stream types `main/sub`→0/1, `-f mpeg`).
+  - [sdk_client.py](relay/sdk_client.py) — thin back-compat shim re-exporting `DahuaClient` from `backends.dahua`.
+  - [dhav.py](relay/dhav.py) — pure `DhavParser`: DHAV frames → `(codec, annexb_nal)`; codec + resolution detection. **Used only by the Dahua probe** (not the streaming path). Fully unit-tested; no SDK/ffmpeg deps.
+  - [publisher.py](relay/publisher.py) — `FfmpegPublisher(rtsp_url, input_args)`: spawns/monitors/restarts `ffmpeg <input_args> -c copy` (demuxer format is vendor-supplied; ffmpeg detects the codec).
+  - [pipeline.py](relay/pipeline.py) — wires callback → bounded queue → ffmpeg (forwards raw bytes; backpressure: drop-oldest).
+  - [manager.py](relay/manager.py) — `StreamManager(cfg, backend, entries)`: the `run` daemon. One login, N concurrent `StreamPipeline`s (one ffmpeg each), always-on; a per-stream start failure is logged and skipped.
   - [streams_config.py](relay/streams_config.py) — pure `StreamEntry` + `load`/`save`/`merge` for `streams.yml`. No SDK/ffmpeg deps; `merge` is non-destructive (see Commands). Unit-tested.
   - [mediamtx_config.py](relay/mediamtx_config.py) — pure `build()` + CLI that generates the runtime MediaMTX config (rtspAddress + optional auth) via PyYAML; when `ON_DEMAND` is set it also emits a `runOnDemand` path per enabled stream pointing at `relay serve`. No SDK deps; used by the entrypoint.
   - [playlist.py](relay/playlist.py) — pure `build_m3u8()`: (name, url) pairs → M3U8 text. `run` writes `output.m3u8` (next to the config) so a player opens all streams at once.
-  - [probe.py](relay/probe.py) — `parse` mode: probe channels×streams → `ProbeResult`s (merged into `streams.yml` by `streams_config`).
-  - [__main__.py](relay/__main__.py) — CLI: `run`, `stream`, `serve`, and `parse` subcommands, signal handling. (`serve <name>` streams one config entry by name; used by MediaMTX `runOnDemand`.)
+  - [__main__.py](relay/__main__.py) — CLI: `run`, `stream`, `serve`, and `parse` subcommands; resolves the `Backend` via `get_backend(cfg.vendor)` and threads it through. (`serve <name>` streams one config entry by name; used by MediaMTX `runOnDemand`.)
 - `NetSDK/` — Dahua SDK (Python ctypes bindings + `Libs/linux64/*.so`). **Proprietary,
   NOT committed** (only its `README.md` + `setup.sh` are tracked; SDK files are git-ignored).
   Setup instructions live in [NetSDK/README.md](NetSDK/README.md). Do not edit the SDK.
+- `hcnetsdk/` — Hikvision HCNetSDK (`libhcnetsdk.so` + `HCNetSDKCom/` + `HCNetSDK.h`).
+  **Proprietary, NOT committed** (only `README.md` + `setup.sh` tracked; libs git-ignored).
+  Ships only C `.so` (no Python bindings — ours live in `backends/hikvision.py`). Setup:
+  [hcnetsdk/README.md](hcnetsdk/README.md). Do not edit the SDK.
 - [scripts/capture_raw.py](scripts/capture_raw.py) — dump raw callback bytes to a `.dhav` file (used to make test fixtures).
 - [tests/](tests/) — pytest; [tests/fixtures/ch3_main.dhav](tests/fixtures/ch3_main.dhav) is a real capture the DHAV tests run against.
 - [deploy/](deploy/) — Dockerfile, entrypoint, mediamtx.yml. `docker-compose.yml` is at the repo **root**.
@@ -59,8 +73,10 @@ file) avoids Docker creating an empty dir when `streams.yml` doesn't exist yet. 
 `config/README.md` is committed; `streams.yml` + `output.m3u8` are git-ignored
 ([config/.gitignore](config/.gitignore)).
 
-Config comes from `.env` (git-ignored): `HOST`, `HOST_PORT`, `USERNAME`, `PASSWORD`,
-`TARGET_HOST`, `TARGET_PORT`. `TARGET_PORT` is the single RTSP port (MediaMTX listen +
+Config comes from `.env` (git-ignored): `VENDOR` (`dahua` default, or `hikvision`/`hik`),
+`HOST`, `HOST_PORT`, `USERNAME`, `PASSWORD`, `TARGET_HOST`, `TARGET_PORT`. `HOST_PORT`
+defaults per vendor (Dahua 37777, Hikvision 8000) when unset. `TARGET_PORT` is the single
+RTSP port (MediaMTX listen +
 publish target + exposed port; default 8554). Optional `TARGET_USERNAME` + `TARGET_PASSWORD`
 enable RTSP auth: when **both** are set, the entrypoint adds a MediaMTX `authInternalUsers`
 block requiring those creds to publish *and* view, and the proxy embeds them (URL-encoded)
@@ -83,15 +99,29 @@ in its publish/viewer URLs (`Config.publish_url`/`viewer_url`). Unset → open a
   `dhav` tail; `is_valid_nal_type` filters header-derived garbage NALs; and H.264 SPS parsing
   **must** skip scaling lists (`_skip_scaling_list`, Dahua sets `seq_scaling_matrix_present=1`)
   or resolution desyncs. (Could be replaced with `ffprobe -f dhav` for one DHAV implementation.)
-- **Codec is per-stream, detected at runtime** (this device's "main" is H.264, not H.265).
-  Never hardcode the codec.
+- **Hikvision delivers MPEG-PS wrapped in an `IMKH` header.** The HCNetSDK real-data
+  callback yields a `NET_DVR_SYSHEAD` chunk (magic `IMKH`, dtype 1) then `NET_DVR_STREAMDATA`
+  (MPEG Program Stream packets, `00 00 01 BA…`, dtype 2). `ffmpeg -f mpeg` demuxes both with
+  `-c copy` (h264, no transcode). Bump `-probesize`/`-analyzeduration` and add `-fflags +genpts`
+  (the PS has non-monotonic DTS) — see `hikvision.BACKEND.ffmpeg_input_args`.
+- **Hikvision preview MUST be non-blocking on a WAN device.** `NET_DVR_PREVIEWINFO.bBlocked=0`
+  plus `NET_DVR_SetConnectTime`/`NET_DVR_SetReconnect` after `NET_DVR_Init`; with `bBlocked=1`
+  the callback never fires over a slow link (RealPlay returns a handle but no data). Empty
+  channels also return a valid handle with zero data — that's "no camera", not an error.
+- **Hikvision channel numbers come from the device**, not a 0-based range: analog
+  `[byStartChan … +byChanNum)` + IP `[byStartDChan … +byIPChanNum + (byHighDChanNum<<8))`
+  (`enumerate_channels`). Dahua stays 0-based (`list(range(channel_count))`).
+- **Codec is per-stream, detected at runtime** (never hardcode the codec).
 - **SDK callback thread must return fast** — it only enqueues; all parsing/ffmpeg work happens
   on the pipeline worker thread. Keep ctypes callback objects referenced (GC would crash the SDK).
-- **`动态库加载失败`** ("library load failed") prints on init because one non-critical `.so`
+- **`动态库加载失败`** ("library load failed") prints on Dahua init because one non-critical `.so`
   fails to load; login/RealPlay still work. Harmless.
-- **`.so` discovery**: `LD_LIBRARY_PATH=.../NetSDK/Libs/linux64` (set in the Dockerfile). The
-  `NetSDK` package uses relative imports and has no `__init__.py`; `relay/__init__.py` puts the
-  project root on `sys.path` so `from NetSDK.NetSDK import NetClient` resolves.
+- **`.so` discovery**: `LD_LIBRARY_PATH` covers both vendors in the Dockerfile
+  (`/app/NetSDK/Libs/linux64:/app/hcnetsdk:/app/hcnetsdk/HCNetSDKCom`); only the selected
+  vendor's libs load. Running locally, set it too (e.g. `LD_LIBRARY_PATH=hcnetsdk:hcnetsdk/HCNetSDKCom`).
+  The `NetSDK` package uses relative imports and has no `__init__.py`; `relay/__init__.py` puts
+  the project root on `sys.path` so `from NetSDK.NetSDK import NetClient` resolves. The Hikvision
+  client also calls `NET_DVR_SetSDKInitCfg(SDK_PATH=2, …)` so `HCNetSDKCom` is found regardless of cwd.
 - **Process-tree footgun when testing**: `pkill -f "relay stream"` also matches the shell
   running it — don't. Target exact pids.
 - **On-demand mode** (`ON_DEMAND=true`): MediaMTX `runOnDemand` spawns `relay serve <name>`
@@ -108,10 +138,12 @@ in its publish/viewer URLs (`Config.publish_url`/`viewer_url`). Unset → open a
 ## Conventions
 
 - TDD for pure logic (config, DHAV parser, `streams_config` load/save/merge, `mediamtx_config`
-  build). SDK/ffmpeg/end-to-end are validated by running against a live device (channel 3 is
-  the known-good test channel).
-- Keep `relay/` modules small and single-purpose; `dhav.py`, `streams_config.py`, and
-  `mediamtx_config.py` stay free of SDK/ffmpeg imports.
+  build, backend registry/`get_backend`, Hikvision channel enumeration, publisher arg building).
+  SDK/ffmpeg/end-to-end are validated against a live device (Hikvision channels 7 & 8 are the
+  known-good test channels; the Dahua device is gone).
+- Keep `relay/` modules small and single-purpose; `dhav.py`, `streams_config.py`,
+  `mediamtx_config.py`, and `backends/base.py` stay free of SDK/ffmpeg imports, and backend
+  modules stay pure to import (lazy SDK load).
 - Scratch/experiment scripts go in `tmp/` (git-ignored). `.dhav` captures, `streams.txt`, and
   the generated `config/streams.yml` + `config/output.m3u8` are git-ignored (except the
   committed test fixture and `config/README.md`).
