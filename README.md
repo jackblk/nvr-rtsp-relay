@@ -1,4 +1,4 @@
-# NetSDK → RTSP Proxy
+# NVR RTSP relay (Dahua / Hikvision)
 
 Re-publishes a **Dahua** (NetSDK) or **Hikvision** (HCNetSDK) NVR's live stream as
 RTSP, **without transcoding** (`ffmpeg -c copy`), so CPU and latency stay low. Pick the
