@@ -21,7 +21,7 @@ wheels = [
 ]
 
 [[package]]
-name = "netsdk-proxy-to-rtsp"
+name = "nvr-rtsp-relay"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [

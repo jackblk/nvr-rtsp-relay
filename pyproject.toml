@@ -1,7 +1,7 @@
 [project]
-name = "netsdk-proxy-to-rtsp"
+name = "nvr-rtsp-relay"
 version = "0.1.0"
-description = "Proxy a Dahua NetSDK live stream to RTSP without transcoding"
+description = "Relay a Dahua (NetSDK) or Hikvision (HCNetSDK) NVR live stream to RTSP without transcoding"
 license = "MIT"
 requires-python = ">=3.11"
 dependencies = [
