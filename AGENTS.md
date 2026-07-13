@@ -46,7 +46,7 @@ available to re-test anymore** — treat the Dahua backend as behavior-preservin
 - [scripts/capture_raw.py](scripts/capture_raw.py) — dump raw callback bytes to a `.dhav` file (used to make test fixtures).
 - [tests/](tests/) — pytest; [tests/fixtures/ch3_main.dhav](tests/fixtures/ch3_main.dhav) is a real capture the DHAV tests run against.
 - [deploy/](deploy/) — Dockerfile, entrypoint, mediamtx.yml. `docker-compose.yml` is at the repo **root**.
-- Working notes: [docs/superpowers/notes/](docs/superpowers/notes/).
+- Working notes: [docs/notes/](docs/notes/) (incl. HCNetSDK ABI/gotchas for re-parsing headers).
 
 ## Commands
 
