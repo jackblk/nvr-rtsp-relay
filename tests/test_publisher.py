@@ -17,6 +17,15 @@ def test_ffmpeg_started_in_own_session(monkeypatch):
             return None
 
     monkeypatch.setattr("relay.publisher.subprocess.Popen", FakeProc)
-    pub = FfmpegPublisher("rtsp://x/y")
+    pub = FfmpegPublisher("rtsp://x/y", ("-f", "dhav"))
     pub.start()
     assert captured.get("start_new_session") is True
+
+
+def test_input_args_are_placed_before_input():
+    pub = FfmpegPublisher("rtsp://x/y", ("-f", "mpeg"))
+    args = pub._args()
+    assert args[:2] == ["ffmpeg", "-hide_banner"]
+    assert "-f" in args and args[args.index("-f") + 1] == "mpeg"
+    assert args.index("-f") < args.index("pipe:0")     # demuxer flag precedes -i input
+    assert args[-1] == "rtsp://x/y"
