@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import relay  # noqa: F401
-from relay.probe import probe_streams
+from relay.backends.dahua import probe_streams
 
 FIXTURE = Path(__file__).parent / "fixtures" / "ch3_main.dhav"
 

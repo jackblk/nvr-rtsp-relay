@@ -15,7 +15,7 @@ from relay.config import Config, STREAM_TYPES
 from relay.manager import StreamManager
 from relay.pipeline import StreamPipeline
 from relay.playlist import build_m3u8
-from relay.probe import probe_streams
+from relay.backends.dahua import probe_streams
 from relay.sdk_client import DahuaClient
 
 log = logging.getLogger(__name__)

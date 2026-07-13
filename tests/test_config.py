@@ -1,7 +1,7 @@
 import pytest
 
 import relay  # noqa: F401  (path bootstrap)
-from relay.config import Config, STREAM_TYPES
+from relay.config import Config
 
 BASE = {"HOST": "h", "USERNAME": "u", "PASSWORD": "p"}
 
@@ -102,6 +102,5 @@ def test_on_demand_unset_defaults_false():
 
 
 def test_stream_type_play_values():
-    assert STREAM_TYPES["main"] == 0
-    assert STREAM_TYPES["sub"] == 3
-    assert STREAM_TYPES["sub2"] == 4
+    from relay.backends.dahua import BACKEND
+    assert BACKEND.stream_types == {"main": 0, "sub": 3, "sub2": 4}
