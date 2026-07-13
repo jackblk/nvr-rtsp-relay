@@ -88,7 +88,7 @@ def merge(existing: List[StreamEntry], results) -> List[StreamEntry]:
     """Non-destructively fold probe results into the existing config.
 
     `results` are objects with attributes channel/stream/ok/codec/width/height
-    (the shape of relay.probe.ProbeResult). Existing entries keep their `name`
+    (the shape of relay.backends.base.ProbeResult). Existing entries keep their `name`
     and `enable` unless a stream fails validation (then `enable=False`); metadata
     is refreshed from the probe. New streams are appended in probe order.
     """

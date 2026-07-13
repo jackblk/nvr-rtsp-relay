@@ -26,9 +26,8 @@ available to re-test anymore** — treat the Dahua backend as behavior-preservin
   - [config.py](relay/config.py) — env→`Config`; `vendor` (from `VENDOR`, alias `hik`→`hikvision`), default port per vendor.
   - [backends/](relay/backends/) — the vendor seam. Each submodule **must be pure to import** (defining ctypes structs is fine; loading the SDK `.so`/wheel is lazy, inside client construction) so config/tests never need an installed SDK.
     - [base.py](relay/backends/base.py) — `SdkClient` Protocol, `ProbeResult`, the `Backend` descriptor, `DEFAULT_PORTS`, and `get_backend(vendor)` (lazy `importlib`).
-    - [dahua.py](relay/backends/dahua.py) — `DahuaClient` (ctypes/NetSDK) + DHAV probe + `BACKEND` (stream types `main/sub/sub2`→0/3/4, `-f dhav`). Moved from the old `sdk_client.py`/`probe.py`.
+    - [dahua.py](relay/backends/dahua.py) — `DahuaClient` (ctypes/NetSDK) + DHAV probe + `BACKEND` (stream types `main/sub/sub2`→0/3/4, `-f dhav`).
     - [hikvision.py](relay/backends/hikvision.py) — `HikvisionClient` (ctypes/HCNetSDK, bindings authored from `hcnetsdk/HCNetSDK.h`) + ffprobe-based probe + `BACKEND` (stream types `main/sub`→0/1, `-f mpeg`).
-  - [sdk_client.py](relay/sdk_client.py) — thin back-compat shim re-exporting `DahuaClient` from `backends.dahua`.
   - [dhav.py](relay/dhav.py) — pure `DhavParser`: DHAV frames → `(codec, annexb_nal)`; codec + resolution detection. **Used only by the Dahua probe** (not the streaming path). Fully unit-tested; no SDK/ffmpeg deps.
   - [publisher.py](relay/publisher.py) — `FfmpegPublisher(rtsp_url, input_args)`: spawns/monitors/restarts `ffmpeg <input_args> -c copy` (demuxer format is vendor-supplied; ffmpeg detects the codec).
   - [pipeline.py](relay/pipeline.py) — wires callback → bounded queue → ffmpeg (forwards raw bytes; backpressure: drop-oldest).
@@ -47,7 +46,7 @@ available to re-test anymore** — treat the Dahua backend as behavior-preservin
 - [scripts/capture_raw.py](scripts/capture_raw.py) — dump raw callback bytes to a `.dhav` file (used to make test fixtures).
 - [tests/](tests/) — pytest; [tests/fixtures/ch3_main.dhav](tests/fixtures/ch3_main.dhav) is a real capture the DHAV tests run against.
 - [deploy/](deploy/) — Dockerfile, entrypoint, mediamtx.yml. `docker-compose.yml` is at the repo **root**.
-- Design/plan docs: [docs/superpowers/](docs/superpowers/).
+- Working notes: [docs/superpowers/notes/](docs/superpowers/notes/).
 
 ## Commands
 

@@ -1,4 +1,4 @@
-"""Dahua NetSDK backend: DahuaClient + DHAV probe. Moved from relay/sdk_client.py.
+"""Dahua NetSDK backend: DahuaClient + DHAV probe.
 
 No Dahua hardware is available to re-test this; keep the client logic unchanged. The
 NetSDK import is lazy (in __init__) so importing this module stays pure.
