@@ -5,6 +5,11 @@ tmp/
 NetSDK/*
 !NetSDK/README.md
 !NetSDK/setup.sh
+# Hikvision HCNetSDK — proprietary, not redistributable. Ignore the SDK files and
+# the zip, but keep the setup instructions + script tracked (see hcnetsdk/README.md).
+hcnetsdk/*
+!hcnetsdk/README.md
+!hcnetsdk/setup.sh
 __pycache__/
 *.pyc
 streams.txt

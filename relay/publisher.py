@@ -1,6 +1,7 @@
-"""Publish the raw Dahua DHAV stream to RTSP via ffmpeg's `dhav` demuxer (no transcode).
+"""Publish a raw camera stream to RTSP via ffmpeg (no transcode).
 
-ffmpeg demuxes DHAV natively (`-f dhav`), so we feed the bytes exactly as the NetSDK
+The demuxer input format is vendor-supplied (`input_args`, e.g. `-f dhav` for Dahua's
+DHAV container, `-f mpeg` for Hikvision's MPEG-PS). We feed the bytes exactly as the SDK
 callback delivers them and let ffmpeg parse frame headers, detect the codec, and assign
 timestamps. `-c copy` means no re-encoding (low CPU / low latency)."""
 import logging
@@ -12,15 +13,16 @@ log = logging.getLogger(__name__)
 
 
 class FfmpegPublisher:
-    def __init__(self, rtsp_url: str):
+    def __init__(self, rtsp_url: str, input_args):
         self.rtsp_url = rtsp_url
+        self._input_args = list(input_args)
         self._proc: Optional[subprocess.Popen] = None
         self._lock = threading.Lock()
 
     def _args(self):
         return [
             "ffmpeg", "-hide_banner", "-loglevel", "warning",
-            "-f", "dhav", "-i", "pipe:0",
+            *self._input_args, "-i", "pipe:0",
             "-c", "copy",
             "-f", "rtsp", "-rtsp_transport", "tcp",
             self.rtsp_url,

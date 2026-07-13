@@ -1,20 +1,21 @@
-"""Shared-login daemon: one DahuaClient login, many StreamPipelines (always-on)."""
+"""Shared-login daemon: one SDK client login, many StreamPipelines (always-on)."""
 import logging
 from typing import List
 
-from relay.config import Config, STREAM_TYPES
+from relay.backends.base import Backend
+from relay.config import Config
 from relay.pipeline import StreamPipeline
-from relay.sdk_client import DahuaClient
 from relay.streams_config import StreamEntry
 
 log = logging.getLogger(__name__)
 
 
 class StreamManager:
-    def __init__(self, cfg: Config, entries: List[StreamEntry]):
+    def __init__(self, cfg: Config, backend: Backend, entries: List[StreamEntry]):
         self.cfg = cfg
+        self.backend = backend
         self._entries = [e for e in entries if e.enable]
-        self._client = DahuaClient()
+        self._client = backend.client_factory()
         self._sessions = []  # list[(handle, StreamPipeline, StreamEntry)]
 
     @property
@@ -31,11 +32,12 @@ class StreamManager:
         self._client.login(self.cfg.host, self.cfg.port,
                            self.cfg.username, self.cfg.password)
         for e in self._entries:
-            pipeline = StreamPipeline(self.cfg.publish_url(e.name))
+            pipeline = StreamPipeline(self.cfg.publish_url(e.name),
+                                      self.backend.ffmpeg_input_args)
             pipeline.start()
             try:
                 handle = self._client.start_realplay(
-                    e.channel, STREAM_TYPES[e.stream], pipeline.on_raw)
+                    e.channel, self.backend.stream_types[e.stream], pipeline.on_raw)
             except Exception:
                 log.exception("ch%s %s: failed to start; skipping", e.channel, e.stream)
                 pipeline.stop()

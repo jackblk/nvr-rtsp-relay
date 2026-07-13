@@ -11,12 +11,11 @@ import relay  # noqa: F401
 from dotenv import load_dotenv
 
 from relay import streams_config
-from relay.config import Config, STREAM_TYPES
+from relay.backends.base import get_backend
+from relay.config import Config
 from relay.manager import StreamManager
 from relay.pipeline import StreamPipeline
 from relay.playlist import build_m3u8
-from relay.probe import probe_streams
-from relay.sdk_client import DahuaClient
 
 log = logging.getLogger(__name__)
 
@@ -28,15 +27,15 @@ def _playlist_path(config_path: str) -> str:
     return os.path.join(os.path.dirname(config_path) or ".", "output.m3u8")
 
 
-def _serve_one(cfg: Config, channel: int, stream: str, name: str):
+def _serve_one(cfg: Config, backend, channel: int, stream: str, name: str):
     """Log in, stream one channel/stream to RTSP, block until SIGINT/SIGTERM, clean up."""
-    pipeline = StreamPipeline(cfg.publish_url(name))
-    client = DahuaClient()
+    pipeline = StreamPipeline(cfg.publish_url(name), backend.ffmpeg_input_args)
+    client = backend.client_factory()
     client.init()
     client.login(cfg.host, cfg.port, cfg.username, cfg.password)
     pipeline.start()
     # cleanup() stops all sessions on shutdown, so the handle isn't tracked here.
-    client.start_realplay(channel, STREAM_TYPES[stream], pipeline.on_raw)
+    client.start_realplay(channel, backend.stream_types[stream], pipeline.on_raw)
     log.info("Streaming ch%s %s (RTSP auth %s)", channel, stream,
              "enabled" if cfg.rtsp_auth_enabled else "disabled")
     log.info("Stream ready — view at: %s", cfg.viewer_url(name))
@@ -51,18 +50,18 @@ def _serve_one(cfg: Config, channel: int, stream: str, name: str):
     client.cleanup()
 
 
-def cmd_stream(cfg: Config, args):
-    _serve_one(cfg, args.channel, args.stream, args.name)
+def cmd_stream(cfg: Config, backend, args):
+    _serve_one(cfg, backend, args.channel, args.stream, args.name)
 
 
-def cmd_serve(cfg: Config, args) -> int:
+def cmd_serve(cfg: Config, backend, args) -> int:
     entries = streams_config.load(args.config)
     try:
         entry = streams_config.find_enabled(entries, args.name)
     except LookupError as e:
         log.error("serve: %s (in %s)", e, args.config)
         return 1
-    _serve_one(cfg, entry.channel, entry.stream, entry.name)
+    _serve_one(cfg, backend, entry.channel, entry.stream, entry.name)
     return 0
 
 
@@ -91,7 +90,7 @@ def _run_on_demand(cfg: Config, args, entries) -> int:
     return 0
 
 
-def cmd_run(cfg: Config, args) -> int:
+def cmd_run(cfg: Config, backend, args) -> int:
     entries = streams_config.load(args.config)
     if not any(e.enable for e in entries):
         log.error("No enabled streams in %s — nothing to do. Run `relay parse` first.",
@@ -101,7 +100,7 @@ def cmd_run(cfg: Config, args) -> int:
     if cfg.on_demand:
         return _run_on_demand(cfg, args, entries)
 
-    manager = StreamManager(cfg, entries)
+    manager = StreamManager(cfg, backend, entries)
     manager.start()
     log.info("Running %d stream(s) (RTSP auth %s)", manager.active_count,
              "enabled" if cfg.rtsp_auth_enabled else "disabled")
@@ -126,16 +125,15 @@ def cmd_run(cfg: Config, args) -> int:
     return 0
 
 
-def cmd_parse(cfg: Config, args) -> int:
-    client = DahuaClient()
+def cmd_parse(cfg: Config, backend, args) -> int:
+    client = backend.client_factory()
     client.init()
     client.login(cfg.host, cfg.port, cfg.username, cfg.password)
-    channels = (range(args.channels) if args.channels
-                else range(client.channel_count))
+    channels = range(args.channels) if args.channels else backend.list_channels(client)
     stream_names = args.streams.split(",")
     pairs = [(ch, st) for ch in channels for st in stream_names]
     log.info("Probing %d stream(s) at concurrency %d...", len(pairs), args.probe_concurrency)
-    results = probe_streams(client, pairs, args.probe_seconds, args.probe_concurrency)
+    results = backend.probe(client, pairs, args.probe_seconds, args.probe_concurrency)
     client.cleanup()
     existing = streams_config.load(args.config)
     merged = streams_config.merge(existing, results)
@@ -149,6 +147,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     load_dotenv()
     cfg = Config.from_env(os.environ)
+    backend = get_backend(cfg.vendor)
 
     ap = argparse.ArgumentParser(prog="relay")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -158,7 +157,7 @@ def main():
 
     s = sub.add_parser("stream", help="stream one channel/stream to RTSP")
     s.add_argument("--channel", type=int, required=True)
-    s.add_argument("--stream", choices=STREAM_TYPES, default="main")
+    s.add_argument("--stream", choices=list(backend.stream_types), default="main")
     s.add_argument("--name", required=True, help="RTSP path name")
 
     sv = sub.add_parser("serve", help="serve one stream by name (used by MediaMTX runOnDemand)")
@@ -168,21 +167,21 @@ def main():
     p = sub.add_parser("parse", help="probe channels/streams -> merge into streams.yml")
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--streams", default="main,sub")
-    p.add_argument("--channels", type=int, default=0, help="0 = use device channel count")
+    p.add_argument("--channels", type=int, default=0, help="0 = use device channel list")
     p.add_argument("--probe-seconds", type=float, default=3.0)
     p.add_argument("--probe-concurrency", type=int, default=4,
                    help="how many streams to probe at once (default 4)")
 
     args = ap.parse_args()
     if args.cmd == "stream":
-        cmd_stream(cfg, args)
+        cmd_stream(cfg, backend, args)
         rc = 0
     elif args.cmd == "serve":
-        rc = cmd_serve(cfg, args)
+        rc = cmd_serve(cfg, backend, args)
     elif args.cmd == "run":
-        rc = cmd_run(cfg, args)
+        rc = cmd_run(cfg, backend, args)
     else:
-        rc = cmd_parse(cfg, args)
+        rc = cmd_parse(cfg, backend, args)
     sys.exit(rc)
 
 

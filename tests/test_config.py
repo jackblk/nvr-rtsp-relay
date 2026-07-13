@@ -1,7 +1,7 @@
 import pytest
 
 import relay  # noqa: F401  (path bootstrap)
-from relay.config import Config, STREAM_TYPES
+from relay.config import Config
 
 BASE = {"HOST": "h", "USERNAME": "u", "PASSWORD": "p"}
 
@@ -102,6 +102,30 @@ def test_on_demand_unset_defaults_false():
 
 
 def test_stream_type_play_values():
-    assert STREAM_TYPES["main"] == 0
-    assert STREAM_TYPES["sub"] == 3
-    assert STREAM_TYPES["sub2"] == 4
+    from relay.backends.dahua import BACKEND
+    assert BACKEND.stream_types == {"main": 0, "sub": 3, "sub2": 4}
+
+
+def test_vendor_defaults_to_dahua():
+    cfg = Config.from_env(BASE)
+    assert cfg.vendor == "dahua"
+
+
+def test_vendor_is_lowercased():
+    cfg = Config.from_env({**BASE, "VENDOR": "Hikvision"})
+    assert cfg.vendor == "hikvision"
+
+
+def test_vendor_hik_alias():
+    cfg = Config.from_env({**BASE, "VENDOR": "HIK"})
+    assert cfg.vendor == "hikvision"
+
+
+def test_default_port_follows_vendor():
+    assert Config.from_env(BASE).port == 37777
+    assert Config.from_env({**BASE, "VENDOR": "hikvision"}).port == 8000
+
+
+def test_host_port_overrides_vendor_default():
+    cfg = Config.from_env({**BASE, "VENDOR": "hikvision", "HOST_PORT": "8200"})
+    assert cfg.port == 8200

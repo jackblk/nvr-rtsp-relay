@@ -14,10 +14,10 @@ log = logging.getLogger(__name__)
 
 
 class StreamPipeline:
-    def __init__(self, rtsp_url: str, max_queue: int = 256, publisher=None):
+    def __init__(self, rtsp_url: str, input_args=("-f", "dhav"), max_queue: int = 256, publisher=None):
         self.rtsp_url = rtsp_url
         self._q: "queue.Queue[bytes]" = queue.Queue(maxsize=max_queue)
-        self._publisher = publisher or FfmpegPublisher(rtsp_url)
+        self._publisher = publisher or FfmpegPublisher(rtsp_url, input_args)
         self._worker = None
         self._stop = threading.Event()
         self._dropped = 0

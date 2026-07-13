@@ -1,21 +1,24 @@
 # NetSDK → RTSP Proxy
 
-Re-publishes a Dahua NVR's NetSDK live stream as RTSP, **without transcoding**
-(`ffmpeg -c copy`), so CPU and latency stay low.
+Re-publishes a **Dahua** (NetSDK) or **Hikvision** (HCNetSDK) NVR's live stream as
+RTSP, **without transcoding** (`ffmpeg -c copy`), so CPU and latency stay low. Pick the
+vendor per deployment with the `VENDOR` env var.
 
 ```
-Dahua device ──NetSDK──▶ relay ──raw DHAV──▶ ffmpeg -f dhav -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
+Dahua device     ──NetSDK────▶ relay ──raw DHAV───▶ ffmpeg -f dhav -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
+Hikvision device ──HCNetSDK──▶ relay ──MPEG-PS───▶ ffmpeg -f mpeg -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
 ```
 
 ## Quick start
 The fastest path is Docker (it bundles MediaMTX + ffmpeg):
 
 ```bash
-# 1. Add the NetSDK wheel into ./NetSDK/, then extract it (see NetSDK/README.md):
-./NetSDK/setup.sh
+# 1. Install the SDK for your vendor (proprietary, not bundled — see the linked READMEs):
+#    Dahua:     add the NetSDK wheel into ./NetSDK/,  then  ./NetSDK/setup.sh
+#    Hikvision: add the SDK zip into ./hcnetsdk/,      then  ./hcnetsdk/setup.sh
 
-# 2. Configure your device:
-cp .env.example .env          # then edit HOST / USERNAME / PASSWORD
+# 2. Configure your device (set VENDOR=dahua or hikvision):
+cp .env.example .env          # then edit VENDOR / HOST / USERNAME / PASSWORD
 
 # 3. Discover which channels/streams work -> generates/updates config/streams.yml
 #    (one entry per channel×stream; valid ones enable: true).
@@ -35,21 +38,26 @@ ffplay -rtsp_transport tcp rtsp://localhost:8554/cam3-main
 
 Because sometimes you don't have ONVIF or RTSP available, you only have the proprietary endpoints, and you want to use standard RTSP clients (VLC, ffplay, NVRs, etc.) without transcoding.
 
-Some Chinese devices (Dahua, KBVision, Imou...etc) use a proprietary protocol from Dahua under the hood, you can access the live stream using some of their official apps like SmartPSS, DMSS, etc. This project wraps Dahua's **NetSDK** to re-publish the live stream as RTSP.
+Some Chinese devices (Dahua, KBVision, Imou...etc) use a proprietary protocol from Dahua under the hood, you can access the live stream using some of their official apps like SmartPSS, DMSS, etc. Hikvision devices similarly expose only their private HCNetSDK protocol in many setups. This project wraps either vendor's SDK to re-publish the live stream as RTSP.
 
 ## Get the SDK (required, not bundled)
-This project wraps Dahua's proprietary **NetSDK**, which is **not** included in this
-repo (it isn't freely redistributable). Download it yourself, paste the wheel into
-`./NetSDK/`, and run `./NetSDK/setup.sh`.
+Both vendor SDKs are proprietary and **not** included in this repo (they aren't freely
+redistributable). Install the one matching your `VENDOR`:
 
-👉 Full instructions, the expected layout, and licensing details are in
-**[NetSDK/README.md](NetSDK/README.md)**.
+- **Dahua NetSDK** — download it, paste the wheel into `./NetSDK/`, run `./NetSDK/setup.sh`.
+  👉 See **[NetSDK/README.md](NetSDK/README.md)**.
+- **Hikvision HCNetSDK** — download the Linux64 SDK, paste the zip into `./hcnetsdk/`, run
+  `./hcnetsdk/setup.sh`. 👉 See **[hcnetsdk/README.md](hcnetsdk/README.md)**.
+
+> Dahua ships Python bindings in its wheel; Hikvision ships only C `.so` libraries, so
+> this project's ctypes bindings for it live in `relay/backends/hikvision.py`.
 
 ## Configure
 Copy [.env.example](.env.example) to `.env` (git-ignored) and fill it in:
 ```
+VENDOR=dahua            # dahua (default) or hikvision (alias: hik)
 HOST=your-device-host
-HOST_PORT=37777
+HOST_PORT=37777         # default per vendor: Dahua 37777, Hikvision 8000; override as needed
 USERNAME=...
 PASSWORD=...
 TARGET_HOST=0.0.0.0     # RTSP server bind/advertise host
@@ -126,10 +134,17 @@ is committed; the generated files are git-ignored.
   disconnects. `output.m3u8` still lists every enabled stream — opening one triggers it.
 - `serve <name> [--config config/streams.yml]` — serves a single stream by name
   (resolved from the config). Invoked by MediaMTX's `runOnDemand`; not usually run by hand.
-- `stream --channel N --stream main|sub|sub2 --name <path>` — serves one ad-hoc
-  channel/stream without a config file.
+- `stream --channel N --stream <type> --name <path>` — serves one ad-hoc
+  channel/stream without a config file. Valid stream types are vendor-specific:
+  Dahua `main|sub|sub2`, Hikvision `main|sub`.
+
+> **Channel numbering is vendor-specific.** Dahua channels are 0-based; Hikvision uses
+> the device's own layout (e.g. analog `1–16` plus IP channels starting at `33`), which
+> `parse` reads from the device. On a remote/WAN device, streams can take a few seconds
+> to establish — if `parse` marks a working channel disabled, raise `--probe-seconds`.
 
 ## License
 This project's own code is licensed under the [MIT License](LICENSE). It does **not**
-cover the Dahua NetSDK, which is proprietary and must be obtained separately under
-Dahua's own license — see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+cover the Dahua NetSDK or the Hikvision HCNetSDK, which are proprietary and must be
+obtained separately under their own licenses — see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
