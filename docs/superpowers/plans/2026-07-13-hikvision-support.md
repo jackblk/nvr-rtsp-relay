@@ -1340,6 +1340,10 @@ class HikvisionClient:
         self._sdk.NET_DVR_SetSDKInitCfg(NET_SDK_INIT_CFG_SDK_PATH, C.byref(p))
         if not self._sdk.NET_DVR_Init():
             raise RuntimeError("NET_DVR_Init failed")
+        # Confirmed in the spike: a remote WAN device needs a generous connect timeout,
+        # otherwise the (non-blocking) preview never establishes and no data flows.
+        self._sdk.NET_DVR_SetConnectTime(8000, 2)
+        self._sdk.NET_DVR_SetReconnect(10000, 1)
         log.info("HCNetSDK initialized")
 
     def login(self, host: str, port: int, username: str, password: str) -> int:
@@ -1377,7 +1381,7 @@ class HikvisionClient:
         pv.dwStreamType = play_type
         pv.dwLinkMode = 0        # TCP/private
         pv.hPlayWnd = None       # headless
-        pv.bBlocked = 1
+        pv.bBlocked = 0          # non-blocking: required for data to flow (spike-confirmed)
         handle = self._sdk.NET_DVR_RealPlay_V40(self._login_id, C.byref(pv),
                                                 self._realdata_cb, None)
         if handle < 0:
@@ -1422,7 +1426,8 @@ class HikvisionClient:
 def _ffprobe_codec_resolution(sample: bytes):
     """Return (codec, width, height) from a raw sample, or (None, 0, 0)."""
     proc = subprocess.run(
-        ["ffprobe", "-hide_banner", "-loglevel", "error", "-f", "mpeg",
+        ["ffprobe", "-hide_banner", "-loglevel", "error",
+         "-probesize", "5000000", "-analyzeduration", "5000000", "-f", "mpeg",
          "-select_streams", "v:0", "-show_entries", "stream=codec_name,width,height",
          "-of", "default=noprint_wrappers=1:nokey=0", "-i", "pipe:0"],
         input=sample, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=15)
@@ -1466,7 +1471,10 @@ BACKEND = Backend(
     vendor="hikvision",
     stream_types={"main": 0, "sub": 1},
     default_port=8000,
-    ffmpeg_input_args=("-f", "mpeg"),   # confirmed by the Task 2 spike
+    # Spike-confirmed: MPEG-PS (IMKH SYSHEAD + PS packets), h264, -c copy works.
+    # Bigger probe window + genpts tame the PS's non-monotonic DTS over a live pipe.
+    ffmpeg_input_args=("-fflags", "+genpts", "-probesize", "5000000",
+                       "-analyzeduration", "5000000", "-f", "mpeg"),
     client_factory=HikvisionClient,
     list_channels=lambda c: c.channels(),
     probe=probe_streams,
