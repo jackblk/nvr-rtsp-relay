@@ -9,7 +9,7 @@ import time
 from typing import Callable, List, Tuple
 
 import relay  # noqa: F401  (sys.path bootstrap so NetSDK imports resolve)
-from relay.backends.base import Backend, ProbeResult
+from relay.backends.base import DEFAULT_PORTS, Backend, ProbeResult
 from relay.dhav import DhavParser
 
 log = logging.getLogger(__name__)
@@ -184,7 +184,7 @@ def probe_streams(client, pairs: List[Tuple[int, str]], seconds: float,
 BACKEND = Backend(
     vendor="dahua",
     stream_types=dict(_STREAM_TYPES),
-    default_port=37777,
+    default_port=DEFAULT_PORTS["dahua"],
     ffmpeg_input_args=("-f", "dhav"),
     client_factory=DahuaClient,
     list_channels=lambda c: list(range(c.channel_count)),

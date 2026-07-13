@@ -2,14 +2,21 @@
 from dataclasses import dataclass
 from urllib.parse import quote
 
-# Logical stream name -> SDK_RealPlayType value (verified against SDK_Enum.py).
-STREAM_TYPES = {"main": 0, "sub": 3, "sub2": 4}
+from relay.backends.base import DEFAULT_PORTS
 
 _TRUTHY = {"1", "true", "yes", "on"}
+
+# Accept a few friendly spellings for the vendor; normalize to the canonical backend name.
+_VENDOR_ALIASES = {"hik": "hikvision", "hikvision": "hikvision", "dahua": "dahua"}
 
 
 def _is_truthy(val: str) -> bool:
     return (val or "").strip().lower() in _TRUTHY
+
+
+def _normalize_vendor(val: str) -> str:
+    v = (val or "dahua").strip().lower()
+    return _VENDOR_ALIASES.get(v, v)
 
 
 @dataclass(frozen=True)
@@ -25,22 +32,28 @@ class Config:
     target_username: str = ""
     target_password: str = ""
     on_demand: bool = False
+    vendor: str = "dahua"
 
     @classmethod
     def from_env(cls, env: dict) -> "Config":
         missing = [k for k in ("HOST", "USERNAME", "PASSWORD") if not env.get(k)]
         if missing:
             raise ValueError(f"Missing required env var(s): {', '.join(missing)}")
+        vendor = _normalize_vendor(env.get("VENDOR"))
+        if vendor not in DEFAULT_PORTS:
+            raise ValueError(f"unknown VENDOR {vendor!r}; valid values: {list(DEFAULT_PORTS)}")
+        default_port = DEFAULT_PORTS[vendor]
         return cls(
             host=env["HOST"],
             username=env["USERNAME"],
             password=env["PASSWORD"],
-            port=int(env.get("HOST_PORT") or 37777),
+            port=int(env["HOST_PORT"]) if env.get("HOST_PORT") else default_port,
             target_host=env.get("TARGET_HOST") or "0.0.0.0",
             target_port=int(env.get("TARGET_PORT") or 8554),
             target_username=env.get("TARGET_USERNAME") or "",
             target_password=env.get("TARGET_PASSWORD") or "",
             on_demand=_is_truthy(env.get("ON_DEMAND", "")),
+            vendor=vendor,
         )
 
     @property

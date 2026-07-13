@@ -37,7 +37,11 @@ class Backend:
     probe: Callable[[SdkClient, List[Tuple[int, str]], float, int], List[ProbeResult]]
 
 
-_VENDORS = ("dahua", "hikvision")
+# Pure vendor metadata (no SDK import needed) — the default device SDK port per vendor.
+# This is the single source of truth for both Config's default port and each Backend.
+DEFAULT_PORTS = {"dahua": 37777, "hikvision": 8000}
+
+_VENDORS = tuple(DEFAULT_PORTS)
 
 
 def get_backend(vendor: str) -> Backend:
