@@ -9,6 +9,26 @@ Dahua device     ──NetSDK────▶ relay ──raw DHAV───▶ ff
 Hikvision device ──private TCP──▶ Python relay ──MPEG-PS──▶ ffmpeg -f mpeg -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
 ```
 
+## Quick start with Docker
+
+With Docker Compose installed, clone the repo and create your `.env` file.
+
+```bash
+git clone https://github.com/jackblk/nvr-rtsp-relay.git
+cd nvr-rtsp-relay
+cp .env.example .env
+```
+
+Set `HOST`, `USERNAME`, and `PASSWORD` in `.env`. The template selects the bundled open-source Hikvision library. Set `HOST_PORT` if your Hikvision recorder uses a private protocol port other than `8000`. For Dahua or a custom SDK, see [Docker SDK setup](#docker).
+
+```bash
+docker compose pull
+docker compose run --rm relay parse
+docker compose up -d
+```
+
+Discovery writes `config/streams.yml`. Once the relay starts, open `config/output.m3u8` in VLC to view your streams.
+
 ## Quick start with uv
 Requires `uv`, `ffmpeg`, and `mediamtx` on PATH.
 ```bash
@@ -86,15 +106,7 @@ ON_DEMAND=true uv run python -m relay run
 
 **Hikvision works out of the box in the prebuilt Docker image.** The image ships with the open-source Python library enabled by default. Pull `ghcr.io/jackblk/nvr-rtsp-relay:latest` on Linux AMD64 or ARM64. FFmpeg and MediaMTX are included.
 
-From the repo root, copy `.env.example` to `.env` and fill in the recorder connection details. Pull the image, discover your streams, and start the relay.
-
-```bash
-docker compose pull
-docker compose run --rm relay parse
-docker compose up -d
-```
-
-Discovery writes `config/streams.yml`. Open the generated `config/output.m3u8` in VLC after the relay starts. Compose publishes `TARGET_PORT` over TCP (8554 by default).
+Compose publishes `TARGET_PORT` over TCP (8554 by default). [Quick start with Docker](#quick-start-with-docker)
 
 Compose mounts `./NetSDK/` and `./hcnetsdk/` read-only. The container exits with an SDK-specific error if the selected mode requires a missing SDK.
 
