@@ -42,14 +42,12 @@ Some deployments expose only the recorder's private protocol. The Dahua backend 
 
 ## Vendor SDKs
 
-The Dahua backend requires NetSDK. Hikvision's native SDK is available as an opt-in on Linux x86-64 via `HIKVISION_TRANSPORT=sdk`. Obtain either SDK separately from its vendor.
+**Hikvision works out of the box with the bundled open-source Python library.** It speaks the Hikvision private TCP protocol directly. Set `VENDOR=hikvision` and fill in your recorder connection details. The relay selects the bundled library by default. [Python library](relay/backends/hikvision_client.py) · [MIT license](LICENSE)
 
-- **Dahua NetSDK** — download it, paste the wheel into `./NetSDK/`, run `./NetSDK/setup.sh`.
-  👉 See **[NetSDK/README.md](NetSDK/README.md)**.
-- **Hikvision HCNetSDK** — download the Linux64 SDK, paste the zip into `./hcnetsdk/`, run
-  `./hcnetsdk/setup.sh`. 👉 See **[hcnetsdk/README.md](hcnetsdk/README.md)**.
+The library currently supports IPv4 recorders that use the 1024-bit RSA challenge and private TCP-framed RTP. Live tests covered H.264 main streams and substreams. [Porting notes](docs/notes/2026-11-20-hikvision-python-port.md)
 
-The Python Hikvision transport currently supports IPv4, the recorder's 1024-bit RSA challenge mode, and private TCP-framed RTP. Live tests covered H.264 main and substreams on macOS ARM64. Other firmware authentication and stream modes can use the SDK option on a compatible host. [Porting notes](docs/notes/2026-11-20-hikvision-python-port.md)
+- **Hikvision HCNetSDK (legacy).** The bundled library is the recommended option. You can still supply your own HCNetSDK on Linux x86-64 by installing it in `./hcnetsdk/` and setting `HIKVISION_TRANSPORT=sdk`. HCNetSDK support will end in a future release. [HCNetSDK setup](hcnetsdk/README.md)
+- **Dahua NetSDK (required for Dahua).** Set `VENDOR=dahua`, download the vendor's SDK to `./NetSDK/`, and run `./NetSDK/setup.sh`. [NetSDK setup](NetSDK/README.md)
 
 ## Configure
 Copy [.env.example](.env.example) to `.env` (git-ignored) and fill it in:
@@ -86,7 +84,7 @@ ON_DEMAND=true uv run python -m relay run
 
 ## Docker
 
-The prebuilt image `ghcr.io/jackblk/nvr-rtsp-relay:latest` supports Linux AMD64 and ARM64. It includes FFmpeg and MediaMTX and defaults to the Python Hikvision transport. Pushes to `main` update `:latest`, and `v*` release tags publish the matching image tag. [Publish workflow](.github/workflows/docker.yml)
+**Hikvision works out of the box in the prebuilt Docker image.** The image ships with the open-source Python library enabled by default. Pull `ghcr.io/jackblk/nvr-rtsp-relay:latest` on Linux AMD64 or ARM64. FFmpeg and MediaMTX are included.
 
 From the repo root, copy `.env.example` to `.env` and fill in the recorder connection details. Pull the image, discover your streams, and start the relay.
 
@@ -100,8 +98,10 @@ Discovery writes `config/streams.yml`. Open the generated `config/output.m3u8` i
 
 Compose mounts `./NetSDK/` and `./hcnetsdk/` read-only. The container exits with an SDK-specific error if the selected mode requires a missing SDK.
 
-- For Dahua, set `VENDOR=dahua` and install a compatible SDK in `./NetSDK/`. [NetSDK setup](NetSDK/README.md)
-- For native Hikvision mode, set `HIKVISION_TRANSPORT=sdk` and install a compatible SDK in `./hcnetsdk/`. [HCNetSDK setup](hcnetsdk/README.md)
+- **Dahua** requires a compatible NetSDK in `./NetSDK/`. Set `VENDOR=dahua` to use it. [NetSDK setup](NetSDK/README.md)
+- **Hikvision HCNetSDK (legacy)** is an optional fallback on Linux AMD64. To use your own copy, install it in `./hcnetsdk/` and set `HIKVISION_TRANSPORT=sdk`. The bundled library is the recommended option. HCNetSDK support will end in a future release. [HCNetSDK setup](hcnetsdk/README.md)
+
+Pushes to `main` update `:latest`, and `v*` release tags publish the matching image tag. [Publish workflow](.github/workflows/docker.yml)
 
 If the GHCR package is private, sign in with `docker login ghcr.io` using an account with package access. [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 
