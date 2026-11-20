@@ -117,10 +117,10 @@ ON_DEMAND=true uv run python -m relay run
 
 Compose publishes `TARGET_PORT` over TCP (8554 by default). [Quick start with Docker](#quick-start-with-docker)
 
-Compose mounts `./NetSDK/` and `./hcnetsdk/` read-only. The container exits with an SDK-specific error if the selected mode requires a missing SDK.
+The SDK mounts in `docker-compose.yml` are commented out by default. Uncomment the matching line under `volumes` if you supply your own SDK. The container exits with an SDK-specific error if the selected mode requires a missing SDK.
 
-- **Dahua** requires a compatible NetSDK in `./NetSDK/`. Set `VENDOR=dahua` to use it. [NetSDK setup](NetSDK/README.md)
-- **Hikvision HCNetSDK (legacy)** is an optional fallback on Linux AMD64. To use your own copy, install it in `./hcnetsdk/` and set `HIKVISION_TRANSPORT=sdk`. The bundled library is the recommended option. HCNetSDK support will end in a future release. [HCNetSDK setup](hcnetsdk/README.md)
+- **Dahua** requires a compatible SDK in `./NetSDK/`. Set `VENDOR=dahua` and uncomment `- ./NetSDK:/app/NetSDK:ro`. [NetSDK setup](NetSDK/README.md)
+- **Hikvision HCNetSDK (legacy)** is an optional fallback on Linux AMD64. Install your SDK in `./hcnetsdk/`, set `HIKVISION_TRANSPORT=sdk`, and uncomment `- ./hcnetsdk:/app/hcnetsdk:ro`. The bundled library is the recommended option. HCNetSDK support will end in a future release. [HCNetSDK setup](hcnetsdk/README.md)
 
 Pushes to `main` update `:latest`, and `v*` release tags publish the matching image tag. [Publish workflow](.github/workflows/docker.yml)
 
