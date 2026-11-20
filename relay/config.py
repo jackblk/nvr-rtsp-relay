@@ -33,6 +33,7 @@ class Config:
     target_password: str = ""
     on_demand: bool = False
     vendor: str = "dahua"
+    hikvision_transport: str = "python"
 
     @classmethod
     def from_env(cls, env: dict) -> "Config":
@@ -42,6 +43,9 @@ class Config:
         vendor = _normalize_vendor(env.get("VENDOR"))
         if vendor not in DEFAULT_PORTS:
             raise ValueError(f"unknown VENDOR {vendor!r}; valid values: {list(DEFAULT_PORTS)}")
+        hikvision_transport = (env.get("HIKVISION_TRANSPORT") or "python").strip().lower()
+        if vendor == "hikvision" and hikvision_transport not in ("python", "sdk"):
+            raise ValueError("HIKVISION_TRANSPORT must be python or sdk")
         default_port = DEFAULT_PORTS[vendor]
         return cls(
             host=env["HOST"],
@@ -54,6 +58,7 @@ class Config:
             target_password=env.get("TARGET_PASSWORD") or "",
             on_demand=_is_truthy(env.get("ON_DEMAND", "")),
             vendor=vendor,
+            hikvision_transport=hikvision_transport,
         )
 
     @property

@@ -1,63 +1,62 @@
 # NVR RTSP relay (Dahua / Hikvision)
 
-Re-publishes a **Dahua** (NetSDK) or **Hikvision** (HCNetSDK) NVR's live stream as
+Re-publishes a **Dahua** or **Hikvision** NVR's live stream as
 RTSP, **without transcoding** (`ffmpeg -c copy`), so CPU and latency stay low. Pick the
 vendor per deployment with the `VENDOR` env var.
 
 ```
 Dahua device     ──NetSDK────▶ relay ──raw DHAV───▶ ffmpeg -f dhav -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
-Hikvision device ──HCNetSDK──▶ relay ──MPEG-PS───▶ ffmpeg -f mpeg -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
+Hikvision device ──private TCP──▶ Python relay ──MPEG-PS──▶ ffmpeg -f mpeg -c copy ──▶ MediaMTX ──RTSP──▶ VLC / ffplay / NVR
 ```
 
-## Quick start
-The fastest path is Docker (it bundles MediaMTX + ffmpeg):
-
+## Quick start with uv
+Requires `uv`, `ffmpeg`, and `mediamtx` on PATH.
 ```bash
-# 1. Install the SDK for your vendor (proprietary, not bundled — see the linked READMEs):
-#    Dahua:     add the NetSDK wheel into ./NetSDK/,  then  ./NetSDK/setup.sh
-#    Hikvision: add the SDK zip into ./hcnetsdk/,      then  ./hcnetsdk/setup.sh
+uv sync
 
-# 2. Configure your device (set VENDOR=dahua or hikvision):
-cp .env.example .env          # then edit VENDOR / HOST / USERNAME / PASSWORD
+# Copy .env.example to .env and set VENDOR, HOST, HOST_PORT, USERNAME, and PASSWORD.
 
-# 3. Discover which channels/streams work -> generates/updates config/streams.yml
-#    (one entry per channel×stream; valid ones enable: true).
-docker compose run --rm relay parse
+# 1. Discover which channels/streams work -> generates/updates streams.yml
+uv run python -m relay parse
 
-# 4. Edit config/streams.yml — enable the streams you want and rename RTSP paths
-#    to taste — then bring up the full stack (publishes every enabled stream):
-docker compose up -d
+# 2. Start the RTSP server (separate shell), then run every enabled stream:
+mkdir -p tmp
+uv run --env-file .env python -m relay.mediamtx_config \
+  --base deploy/mediamtx.yml --out tmp/mediamtx.yml
+mediamtx tmp/mediamtx.yml
+uv run python -m relay run            # reads config/streams.yml (default)
 
-# 5. View: open the generated playlist (all enabled streams at once) in VLC:
+# (or serve a single ad-hoc stream without a config file:)
+uv run python -m relay stream --channel 3 --stream main --name cam3-main
+
+# 3. View — open the generated playlist, or use the RTSP URL logged by the relay:
 vlc config/output.m3u8
-# or a single stream (add user:pass@ if you set RTSP auth):
-ffplay -rtsp_transport tcp rtsp://localhost:8554/cam3-main
+ffplay -rtsp_transport tcp "<RTSP URL>"
 ```
 
 ## Why?
 
 Because sometimes you don't have ONVIF or RTSP available, you only have the proprietary endpoints, and you want to use standard RTSP clients (VLC, ffplay, NVRs, etc.) without transcoding.
 
-Some Chinese devices (Dahua, KBVision, Imou...etc) use a proprietary protocol from Dahua under the hood, you can access the live stream using some of their official apps like SmartPSS, DMSS, etc. Hikvision devices similarly expose only their private HCNetSDK protocol in many setups. This project wraps either vendor's SDK to re-publish the live stream as RTSP.
+Some deployments expose only the recorder's private protocol. The Dahua backend uses NetSDK. The default Hikvision backend speaks the private TCP protocol directly from Python and publishes the live stream through the same RTSP pipeline.
 
-## Get the SDK (required, not bundled)
-Both vendor SDKs are proprietary and **not** included in this repo (they aren't freely
-redistributable). Install the one matching your `VENDOR`:
+## Vendor SDKs
+
+The Dahua backend requires NetSDK. Hikvision's native SDK is available as an opt-in on Linux x86-64 via `HIKVISION_TRANSPORT=sdk`. Obtain either SDK separately from its vendor.
 
 - **Dahua NetSDK** — download it, paste the wheel into `./NetSDK/`, run `./NetSDK/setup.sh`.
   👉 See **[NetSDK/README.md](NetSDK/README.md)**.
 - **Hikvision HCNetSDK** — download the Linux64 SDK, paste the zip into `./hcnetsdk/`, run
   `./hcnetsdk/setup.sh`. 👉 See **[hcnetsdk/README.md](hcnetsdk/README.md)**.
 
-> Dahua ships Python bindings in its wheel; Hikvision ships only C `.so` libraries, so
-> this project's ctypes bindings for it live in `relay/backends/hikvision.py`.
+The Python Hikvision transport currently supports IPv4, the recorder's 1024-bit RSA challenge mode, and private TCP-framed RTP. Live tests covered H.264 main and substreams on macOS ARM64. Other firmware authentication and stream modes can use the SDK option on a compatible host. [Porting notes](docs/notes/2026-11-20-hikvision-python-port.md)
 
 ## Configure
 Copy [.env.example](.env.example) to `.env` (git-ignored) and fill it in:
 ```
 VENDOR=dahua            # dahua (default) or hikvision (alias: hik)
 HOST=your-device-host
-HOST_PORT=37777         # default per vendor: Dahua 37777, Hikvision 8000; override as needed
+HOST_PORT=37777         # private protocol port: Dahua 37777, Hikvision 8000 by default
 USERNAME=...
 PASSWORD=...
 TARGET_HOST=0.0.0.0     # RTSP server bind/advertise host
@@ -74,32 +73,14 @@ credentials to publish *and* to view, so clients must connect with
 `rtsp://<user>:<pass>@<host>:<port>/<path>`. On startup the relay logs the exact
 view URL (`Stream ready — view at: ...`).
 
-## Local (dev)
-Requires `uv`, `ffmpeg`, and `mediamtx` on PATH.
-```bash
-uv sync
-
-# 1. Discover which channels/streams work -> generates/updates streams.yml
-uv run python -m relay parse
-
-# 2. Start the RTSP server (separate shell), then run every enabled stream:
-mediamtx deploy/mediamtx.yml
-uv run python -m relay run            # reads config/streams.yml (default)
-
-# (or serve a single ad-hoc stream without a config file:)
-uv run python -m relay stream --channel 3 --stream main --name cam3-main
-
-# 3. View — open the generated playlist, or a single stream:
-vlc config/output.m3u8
-ffplay -rtsp_transport tcp rtsp://127.0.0.1:8554/cam3-main
-```
+## On-demand
 
 For **on-demand** mode locally, generate the MediaMTX config so the `runOnDemand` paths
 exist, then run both with `ON_DEMAND=true` (start `mediamtx` from the repo root):
 ```bash
-ON_DEMAND=true uv run python -m relay.mediamtx_config \
-  --base deploy/mediamtx.yml --out /tmp/mtx.yml --streams-config config/streams.yml
-mediamtx /tmp/mtx.yml
+ON_DEMAND=true uv run --env-file .env python -m relay.mediamtx_config \
+  --base deploy/mediamtx.yml --out tmp/mediamtx.yml --streams-config config/streams.yml
+mediamtx tmp/mediamtx.yml
 ON_DEMAND=true uv run python -m relay run
 ```
 

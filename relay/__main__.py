@@ -129,7 +129,11 @@ def cmd_parse(cfg: Config, backend, args) -> int:
     client = backend.client_factory()
     client.init()
     client.login(cfg.host, cfg.port, cfg.username, cfg.password)
-    channels = range(args.channels) if args.channels else backend.list_channels(client)
+    if args.channels and cfg.vendor == "dahua":
+        channels = range(args.channels)
+    else:
+        # Hikvision numbering comes from the recorder, including any IP channel offset.
+        channels = backend.list_channels(client)[:max(0, args.channels) if args.channels else None]
     stream_names = args.streams.split(",")
     pairs = [(ch, st) for ch in channels for st in stream_names]
     log.info("Probing %d stream(s) at concurrency %d...", len(pairs), args.probe_concurrency)
@@ -147,7 +151,7 @@ def main():
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     load_dotenv()
     cfg = Config.from_env(os.environ)
-    backend = get_backend(cfg.vendor)
+    backend = get_backend(cfg.vendor, hikvision_transport=cfg.hikvision_transport)
 
     ap = argparse.ArgumentParser(prog="relay")
     sub = ap.add_subparsers(dest="cmd", required=True)
@@ -167,7 +171,7 @@ def main():
     p = sub.add_parser("parse", help="probe channels/streams -> merge into streams.yml")
     p.add_argument("--config", default=DEFAULT_CONFIG)
     p.add_argument("--streams", default="main,sub")
-    p.add_argument("--channels", type=int, default=0, help="0 = use device channel list")
+    p.add_argument("--channels", type=int, default=0, help="number of channels to probe (0 = use device channel list)")
     p.add_argument("--probe-seconds", type=float, default=3.0)
     p.add_argument("--probe-concurrency", type=int, default=4,
                    help="how many streams to probe at once (default 4)")

@@ -1,17 +1,20 @@
-"""Hikvision HCNetSDK backend. ctypes bindings authored from hcnetsdk/HCNetSDK.h.
+"""Hikvision backends and MPEG-PS probing.
 
-Importing this module is pure (only defines structs/callbacks). The .so is loaded
-lazily in HikvisionClient.init().
+The portable private TCP client is the default. The optional Linux SDK client
+uses ctypes bindings from hcnetsdk/HCNetSDK.h and loads the .so in init().
 """
 import ctypes as C
 import logging
 import subprocess
 import time
+from dataclasses import replace
 from pathlib import Path
 from typing import Callable, List, Tuple
 
 import relay  # noqa: F401
 from relay.backends.base import DEFAULT_PORTS, Backend, ProbeResult
+from relay.backends.hikvision_client import HikvisionPrivateClient
+from relay.backends.hikvision_protocol import enumerate_channels
 
 log = logging.getLogger(__name__)
 
@@ -75,14 +78,6 @@ class NET_DVR_LOCAL_SDK_PATH(C.Structure):
 
 
 REALDATACALLBACK = C.CFUNCTYPE(None, LONG, DWORD, C.POINTER(BYTE), DWORD, C.c_void_p)
-
-
-def enumerate_channels(chan_num, start_chan, ip_chan_num, start_dchan, high_dchan_num=0):
-    """Valid channel numbers: analog block + IP block, from device-info fields."""
-    analog = list(range(start_chan, start_chan + chan_num)) if chan_num else []
-    ip_count = ip_chan_num + (high_dchan_num << 8)
-    ip = list(range(start_dchan, start_dchan + ip_count)) if (ip_count and start_dchan) else []
-    return analog + ip
 
 
 class HikvisionClient:
@@ -251,11 +246,13 @@ BACKEND = Backend(
     vendor="hikvision",
     stream_types={"main": 0, "sub": 1},
     default_port=DEFAULT_PORTS["hikvision"],
-    # Spike-confirmed: MPEG-PS (IMKH SYSHEAD + PS packets), h264, -c copy works.
-    # Bigger probe window + genpts tame the PS's non-monotonic DTS over a live pipe.
+    # Both transports emit an IMKH header followed by MPEG-PS. A longer probe and
+    # generated PTS also handle imperfect timestamps from native SDK streams.
     ffmpeg_input_args=("-fflags", "+genpts", "-probesize", "5000000",
                        "-analyzeduration", "5000000", "-f", "mpeg"),
-    client_factory=HikvisionClient,
+    client_factory=HikvisionPrivateClient,
     list_channels=lambda c: c.channels(),
     probe=probe_streams,
 )
+
+SDK_BACKEND = replace(BACKEND, client_factory=HikvisionClient)

@@ -44,8 +44,11 @@ DEFAULT_PORTS = {"dahua": 37777, "hikvision": 8000}
 _VENDORS = tuple(DEFAULT_PORTS)
 
 
-def get_backend(vendor: str) -> Backend:
+def get_backend(vendor: str, *, hikvision_transport: str = "python") -> Backend:
     v = (vendor or "").strip().lower()
     if v not in _VENDORS:
         raise ValueError(f"unknown VENDOR {vendor!r}; valid values: {list(_VENDORS)}")
-    return importlib.import_module(f"relay.backends.{v}").BACKEND
+    module = importlib.import_module(f"relay.backends.{v}")
+    if v == "hikvision" and hikvision_transport == "sdk":
+        return module.SDK_BACKEND
+    return module.BACKEND

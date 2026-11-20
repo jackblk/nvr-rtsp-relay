@@ -1,7 +1,8 @@
 # HCNetSDK — Hikvision Device Network SDK (download separately)
 
-This directory holds the **Hikvision HCNetSDK** ("Device Network SDK" for Linux 64-bit),
-which this project depends on but **does not bundle**. The SDK is proprietary software
+This directory holds the optional **Hikvision HCNetSDK** ("Device Network SDK" for Linux x86-64).
+The relay uses its Python private TCP client by default. Set `HIKVISION_TRANSPORT=sdk` to
+use the SDK. The SDK is proprietary software
 owned by *Hangzhou Hikvision Digital Technology Co., Ltd.* and is **not redistributable**
 under its license, so you must download it yourself.
 
