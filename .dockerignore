@@ -1,0 +1,10 @@
+.git
+.env
+.env.*
+.venv
+.pytest_cache
+**/__pycache__
+config
+tmp
+NetSDK
+hcnetsdk

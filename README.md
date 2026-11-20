@@ -54,9 +54,9 @@ The Python Hikvision transport currently supports IPv4, the recorder's 1024-bit 
 ## Configure
 Copy [.env.example](.env.example) to `.env` (git-ignored) and fill it in:
 ```
-VENDOR=dahua            # dahua (default) or hikvision (alias: hik)
+VENDOR=hikvision        # hikvision (alias: hik) or dahua (requires NetSDK)
 HOST=your-device-host
-HOST_PORT=37777         # private protocol port: Dahua 37777, Hikvision 8000 by default
+HOST_PORT=              # defaults to 8000 for Hikvision and 37777 for Dahua
 USERNAME=...
 PASSWORD=...
 TARGET_HOST=0.0.0.0     # RTSP server bind/advertise host
@@ -85,20 +85,25 @@ ON_DEMAND=true uv run python -m relay run
 ```
 
 ## Docker
-```bash
-docker compose up --build        # runs `relay run` against the mounted streams.yml
-# View (add user:pass@ if RTSP auth is enabled):
-ffplay -rtsp_transport tcp rtsp://<host>:8554/cam3-main
-```
 
-Run `parse` mode in Docker instead (writes to the mounted ./config/streams.yml):
+The prebuilt image `ghcr.io/jackblk/nvr-rtsp-relay:latest` supports Linux AMD64 and ARM64. It includes FFmpeg and MediaMTX and defaults to the Python Hikvision transport. Pushes to `main` update `:latest`, and `v*` release tags publish the matching image tag. [Publish workflow](.github/workflows/docker.yml)
+
+From the repo root, copy `.env.example` to `.env` and fill in the recorder connection details. Pull the image, discover your streams, and start the relay.
+
 ```bash
+docker compose pull
 docker compose run --rm relay parse
+docker compose up -d
 ```
 
-The `./config` directory is bind-mounted into the container, so `config/streams.yml`
-and `config/output.m3u8` are editable/viewable on the host. Only `config/README.md`
-is committed; the generated files are git-ignored.
+Discovery writes `config/streams.yml`. Open the generated `config/output.m3u8` in VLC after the relay starts. Compose publishes `TARGET_PORT` over TCP (8554 by default).
+
+Compose mounts `./NetSDK/` and `./hcnetsdk/` read-only. The container exits with an SDK-specific error if the selected mode requires a missing SDK.
+
+- For Dahua, set `VENDOR=dahua` and install a compatible SDK in `./NetSDK/`. [NetSDK setup](NetSDK/README.md)
+- For native Hikvision mode, set `HIKVISION_TRANSPORT=sdk` and install a compatible SDK in `./hcnetsdk/`. [HCNetSDK setup](hcnetsdk/README.md)
+
+If the GHCR package is private, sign in with `docker login ghcr.io` using an account with package access. [GitHub Container Registry](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-container-registry)
 
 ## Modes
 - `parse [--config config/streams.yml] [--probe-concurrency 4]` — probes every

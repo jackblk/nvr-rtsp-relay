@@ -43,3 +43,11 @@ Replace the SDK dependency for the Hikvision operations the relay uses. The Pyth
 - The normal `uv run --locked python -m relay parse` command detected all four working channel 7 and 8 variants and recorded their H.264 resolutions. The capped Hikvision probe now follows the recorder's channel numbering, starting at channel 1 on this unit.
 - Verified on-demand startup with MediaMTX `runOnDemand` invoking `relay serve`. The first RTSP viewer triggered the Python login and decoded a six-second channel 7 main clip at 960×1080.
 - The test suite passed 75 cases. The four pre-existing Dahua cases still require the missing DHAV capture fixture.
+
+### Prebuilt image
+
+- The single runtime image defaults to the Python Hikvision transport and copies the architecture-matched MediaMTX 1.21.4 executable from the upstream image. Both local SDK directories are excluded from the build context.
+- The GHCR workflow builds Linux AMD64 and ARM64 from `main` and `v*` tags. The workflow tracks the current GitHub Actions major tags. The root Compose file pulls `ghcr.io/jackblk/nvr-rtsp-relay:latest` using the existing `.env` and `config/` layout.
+- Compose mounts the optional SDK directories read-only. The entrypoint checks for the Python wrapper and `libdhnetsdk.so` in Dahua mode, or `libhcnetsdk.so` in native Hikvision mode, before starting MediaMTX. The mounted SDK has to match the container architecture.
+- Built both image variants locally and decoded 24 RTSP frames from live Hikvision channel 7 main (H.264, 960×1080) through each variant using its default command. Both variants exclude the vendor SDKs and exit with status 1 and a mode-specific error when the configured SDK is missing.
+- Validated the workflow and Compose configuration. The full `uv run pytest -q` run passed 75 cases. Four existing tests failed because `tests/fixtures/ch3_main.dhav` is absent from the checkout.

@@ -1,10 +1,7 @@
 services:
   relay:
     container_name: rtsp-relay
-    pull_policy: build
-    build:
-      context: .
-      dockerfile: deploy/Dockerfile
+    image: ghcr.io/jackblk/nvr-rtsp-relay:latest
     env_file: .env
     ports:
       - "${TARGET_PORT:-8554}:${TARGET_PORT:-8554}"
@@ -13,6 +10,9 @@ services:
       # Mounting the directory avoids the "Docker creates an empty dir" footgun
       # of bind-mounting a not-yet-existing file.
       - ./config:/app/config
+      # Optional native SDKs installed by the operator.
+      - ./NetSDK:/app/NetSDK:ro
+      - ./hcnetsdk:/app/hcnetsdk:ro
     restart: unless-stopped
     command: ["run"]
     # One-off single stream instead of the config-driven daemon:
