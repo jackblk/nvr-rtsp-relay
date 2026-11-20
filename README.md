@@ -11,15 +11,24 @@ Hikvision device ──private TCP──▶ Python relay ──MPEG-PS──▶ 
 
 ## Quick start with Docker
 
-With Docker Compose installed, clone the repo and create your `.env` file.
+With Docker Compose installed, download the Compose file into a new directory.
 
 ```bash
-git clone https://github.com/jackblk/nvr-rtsp-relay.git
+mkdir nvr-rtsp-relay
 cd nvr-rtsp-relay
-cp .env.example .env
+curl -fsSLO https://raw.githubusercontent.com/jackblk/nvr-rtsp-relay/main/docker-compose.yml
 ```
 
-Set `HOST`, `USERNAME`, and `PASSWORD` in `.env`. The template selects the bundled open-source Hikvision library. Set `HOST_PORT` if your Hikvision recorder uses a private protocol port other than `8000`. For Dahua or a custom SDK, see [Docker SDK setup](#docker).
+Create a `.env` file next to `docker-compose.yml` with your Hikvision recorder details.
+
+```dotenv
+VENDOR=hikvision
+HOST=192.168.1.100
+USERNAME=your-recorder-username
+PASSWORD=your-recorder-password
+```
+
+Set `HOST_PORT` if the recorder uses a private protocol port other than `8000`. For Dahua or a custom SDK, see [Docker SDK setup](#docker).
 
 ```bash
 docker compose pull
