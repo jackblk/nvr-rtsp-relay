@@ -1,11 +1,14 @@
 import io
 import struct
 
+import pytest
+
 from relay.backends.base import get_backend
 from relay.backends.hikvision import HikvisionClient
+from relay.backends import hikvision_client
 from relay.backends.hikvision_client import HikvisionPrivateClient
 from relay.backends.hikvision_media import ProgramStream, RTPPacket, read_rtp
-from relay.backends.hikvision_protocol import _command_checksum, _login_proof
+from relay.backends.hikvision_protocol import HikvisionProtocolError, _command_checksum, _login_proof
 from relay.config import Config
 
 
@@ -64,3 +67,48 @@ def test_drops_incomplete_video_frame_and_detects_hevc():
     packet = mux.feed(RTPPacket(98, 4, 4_000, True, b'\x42\x01\x01'))
     assert b'\x24\xe0\x00\x00' in packet  # HEVC stream map entry
     assert packet.endswith(b'\x00\x00\x00\x01\x42\x01\x01')
+
+
+def test_preview_reopens_with_new_shared_login_after_recorder_rejects_old_one(monkeypatch):
+    class Session:
+        channels = (7, 8)
+        expired = False
+
+        def start_preview(self, conn, channel, stream):
+            if self.expired:
+                raise HikvisionProtocolError('preview rejected')
+            return b'IMKH'
+
+    old, current = Session(), Session()
+    logins = iter([old, current])
+    monkeypatch.setattr(hikvision_client, 'login', lambda *_: next(logins))
+    recorder = hikvision_client._RecorderSession('recorder', 8000, 'user', 'password')
+    media = []
+    preview = hikvision_client._Preview(recorder, 7, 0, media.append)
+    other_media = []
+    other_preview = hikvision_client._Preview(recorder, 8, 0, other_media.append)
+
+    def receive(preview):
+        frame = iter([RTPPacket(96, 1, 90_000, True, b'\x67\x64')])
+
+        def read_rtp(_):
+            try:
+                return next(frame)
+            except StopIteration:
+                raise EOFError('preview disconnected') from None
+
+        monkeypatch.setattr(hikvision_client, 'read_rtp', read_rtp)
+        with pytest.raises(EOFError):
+            preview._receive(object())
+
+    receive(preview)
+    old.expired = True
+    with pytest.raises(HikvisionProtocolError, match='preview rejected'):
+        preview._receive(object())
+    assert recorder.current is current
+
+    receive(preview)
+    receive(other_preview)
+    assert len(media) == 4
+    assert media[-1].startswith(b'\x00\x00\x01\xba')
+    assert len(other_media) == 2

@@ -1,3 +1,5 @@
+import threading
+
 import relay  # noqa: F401  (path bootstrap)
 from relay.pipeline import StreamPipeline
 
@@ -50,3 +52,32 @@ def test_forward_restarts_on_broken_pipe():
     p = _pipeline(pub)
     p._forward(b"data")
     assert pub.start_calls == 1            # broken pipe -> restart + retry write
+
+
+def test_pipeline_resets_publisher_after_camera_goes_quiet(monkeypatch):
+    idle = threading.Event()
+    resumed = threading.Event()
+
+    class Publisher(FakePublisher):
+        def write(self, data):
+            if data == b"resumed":
+                resumed.set()
+            return super().write(data)
+
+        def stop(self):
+            super().stop()
+            idle.set()
+
+    monkeypatch.setattr("relay.pipeline._IDLE_TIMEOUT", 0)
+    monkeypatch.setattr("relay.pipeline._RETRY_DELAY", 0)
+    pub = Publisher(alive=False)
+    pipeline = _pipeline(pub)
+    pipeline.start()
+    try:
+        pipeline.on_raw(b"initial")
+        assert idle.wait(2)
+        pipeline.on_raw(b"resumed")
+        assert resumed.wait(2)
+        assert pub.start_calls == 2
+    finally:
+        pipeline.stop()

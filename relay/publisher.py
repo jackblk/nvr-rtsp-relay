@@ -5,11 +5,15 @@ DHAV container, `-f mpeg` for Hikvision's MPEG-PS). We feed the bytes exactly as
 callback delivers them and let ffmpeg parse frame headers, detect the codec, and assign
 timestamps. `-c copy` means no re-encoding (low CPU / low latency)."""
 import logging
+import os
+import select
 import subprocess
-import threading
+import time
 from typing import Optional
+from urllib.parse import urlsplit
 
 log = logging.getLogger(__name__)
+_WRITE_TIMEOUT = 5
 
 
 class FfmpegPublisher:
@@ -17,7 +21,6 @@ class FfmpegPublisher:
         self.rtsp_url = rtsp_url
         self._input_args = list(input_args)
         self._proc: Optional[subprocess.Popen] = None
-        self._lock = threading.Lock()
 
     def _args(self):
         return [
@@ -29,41 +32,52 @@ class FfmpegPublisher:
         ]
 
     def start(self):
-        with self._lock:
-            # start_new_session: run ffmpeg in its own process group so a
-            # SIGINT/SIGTERM sent to the relay process (e.g. MediaMTX tearing down
-            # an on-demand stream) is NOT propagated to ffmpeg. We stop it
-            # explicitly via stop(); this prevents a shutdown-time restart race.
-            self._proc = subprocess.Popen(
-                self._args(), stdin=subprocess.PIPE,
-                stdout=subprocess.DEVNULL, stderr=None,
-                start_new_session=True,
-            )
-        log.info("ffmpeg started (dhav demuxer) -> %s", self.rtsp_url)
+        self.stop()
+        # The pipeline owns ffmpeg's lifetime, including on-demand shutdown.
+        self._proc = subprocess.Popen(
+            self._args(), stdin=subprocess.PIPE, bufsize=0,
+            stdout=subprocess.DEVNULL, stderr=None, start_new_session=True,
+        )
+        if self._proc.stdin is not None:
+            os.set_blocking(self._proc.stdin.fileno(), False)
+        log.info("ffmpeg started for %s", urlsplit(self.rtsp_url).path)
 
     def write(self, data: bytes) -> bool:
-        """Write to ffmpeg stdin. Returns False if the pipe is broken."""
+        """Return False if ffmpeg closes its pipe or stops reading it."""
         proc = self._proc
         if not proc or proc.stdin is None:
             return False
-        try:
-            proc.stdin.write(data)
-            return True
-        except (BrokenPipeError, ValueError):
-            return False
+        fd = proc.stdin.fileno()
+        pending = memoryview(data)
+        deadline = time.monotonic() + _WRITE_TIMEOUT
+        poller = None
+        while pending:
+            try:
+                pending = pending[os.write(fd, pending):]
+            except BrokenPipeError:
+                return False
+            except BlockingIOError:
+                if poller is None:
+                    poller = select.poll()
+                    poller.register(fd, select.POLLOUT)
+                remaining_ms = int((deadline - time.monotonic()) * 1000)
+                if remaining_ms <= 0 or not poller.poll(remaining_ms):
+                    return False
+        return True
 
     def is_alive(self) -> bool:
         return self._proc is not None and self._proc.poll() is None
 
     def stop(self):
-        with self._lock:
-            if self._proc:
-                try:
-                    if self._proc.stdin:
-                        self._proc.stdin.close()
-                    self._proc.terminate()
-                    self._proc.wait(timeout=5)
-                except Exception:
-                    self._proc.kill()
-                self._proc = None
-        log.info("ffmpeg stopped")
+        proc, self._proc = self._proc, None
+        if proc is None:
+            return
+        if proc.stdin is not None:
+            proc.stdin.close()
+        if proc.poll() is None:
+            proc.terminate()
+            try:
+                proc.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
